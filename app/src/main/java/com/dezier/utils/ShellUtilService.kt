@@ -59,6 +59,10 @@ class ShellUtilService : IShellUtilService.Stub() {
         }
     }
 
+    /**
+     * 使用 adb shell 命令授予无障碍权限。
+     * 真折腾不动官方 API 了。。。
+     */
     override fun grantAccessibilityPermission(componentName: String): Int {
         Log.i(TAG, "Attempting to grant accessibility permission for $componentName using shell command.")
         try {

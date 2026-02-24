@@ -1,4 +1,4 @@
-package com.dezier.autoscroll
+package com.dezier.autoscroll.main
 
 import android.content.ComponentName
 import android.content.Context
@@ -14,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -29,18 +28,17 @@ import androidx.core.net.toUri
 import androidx.lifecycle.*
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dezier.autoscroll.service.MainService
 import com.dezier.autoscroll.ui.theme.AutoScrollTheme
 import com.dezier.autoscroll.ui.theme.ShizukuSectionPurple
 import com.dezier.utils.ShellUtilClient
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 
 
 
-fun startMainService(context: Context) {
-    val intent = Intent(context, FloatingWindowService::class.java)
-    context.startService(intent)
-}
+
 
 fun requestPermission(
     context: Context, permissionAction: String
@@ -76,24 +74,20 @@ fun PermissionRow(
     }
 }
 
-suspend fun grantShizukuAppops(context: Context, shellUtilClient: ShellUtilClient) {
+suspend fun grantShizuA11y(context: Context, shellUtilClient: ShellUtilClient) {
     if (!shellUtilClient.isBound) {
         Toast.makeText(context, "Shizuku not connected.", Toast.LENGTH_SHORT).show()
         return
     }
 
-    val component = ComponentName(context.packageName, MyAccessibilityService::class.java.name)
+    val component = ComponentName(context.packageName, MainService::class.java.name)
 
-    val r1 = shellUtilClient.grantOverlayPermission(context.packageName, context.applicationInfo.uid)
+    val r = shellUtilClient.grantAccessibilityPermission(component.flattenToString())
 
-    val r2 = shellUtilClient.grantAccessibilityPermission(component.flattenToString())
-
-    if (r1.isSuccess && r2.isSuccess) {
-        Toast.makeText(context, "Shizuku AppOps ✅", Toast.LENGTH_SHORT).show()
-    } else if (r1.isSuccess || r2.isSuccess) {
-        Toast.makeText(context, "Shizuku AppOps 1/2", Toast.LENGTH_SHORT).show()
+    if (r.isSuccess) {
+        Toast.makeText(context, "Shizuku A11y ✅", Toast.LENGTH_SHORT).show()
     } else {
-        Toast.makeText(context, "Shizuku AppOps ❌", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Shizuku A11y ❌", Toast.LENGTH_SHORT).show()
     }
 
 }
@@ -125,12 +119,12 @@ fun ShizukuSection(vm: MainViewModel = viewModel()) {
             }
         )
         PermissionRow(
-            requestString = "通过 Shizuku 授予应用权限",
-            successString = "已获得必须的应用权限，无需操作",
-            isGranted = vm.hasAccessibility && vm.canDrawOverlays,
+            requestString = "通过 Shizuku 授予无障碍权限",
+            successString = "已获得无障碍权限，无需操作",
+            isGranted = vm.hasAccessibility,
             onGrant = {
                 lifecycleOwner.lifecycleScope.launch {
-                    grantShizukuAppops(context, vm.shellUtilClient)
+                    grantShizuA11y(context, vm.shellUtilClient)
                     vm.refresh(context)
                 }
             }
@@ -139,7 +133,8 @@ fun ShizukuSection(vm: MainViewModel = viewModel()) {
 }
 
 @Composable
-fun MainPage(vm: MainViewModel = viewModel()) {
+fun MainPage(toLaunchMainService: () -> Unit,
+             vm: MainViewModel = viewModel()) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -158,11 +153,6 @@ fun MainPage(vm: MainViewModel = viewModel()) {
         ShizukuSection()
     }
 
-    PermissionRow(
-        requestString = "悬浮窗权限",
-        successString = "已获得悬浮窗权限",
-        isGranted = vm.canDrawOverlays,
-        onGrant = { requestPermission(context, Settings.ACTION_MANAGE_OVERLAY_PERMISSION) })
 
     PermissionRow(
         requestString = "无障碍权限",
@@ -171,17 +161,49 @@ fun MainPage(vm: MainViewModel = viewModel()) {
         onGrant = { requestPermission(context, Settings.ACTION_ACCESSIBILITY_SETTINGS) })
 
     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (vm.hasAccessibility && vm.canDrawOverlays) {
-            Text(text = "启动悬浮窗")
+        if (vm.isServiceAlive){
+            Text(text = "✅服务正在运行")
+        }
+        else if (vm.hasAccessibility) {
+            Text(text = "⌛启动服务")
             Spacer(modifier = Modifier.weight(1f))
             Button(
-                onClick = { startMainService(context) }) {
+                onClick = { toLaunchMainService() }) {
                 Text(text = "启动")
             }
         } else {
-            Text(text = "未满足启动条件")
+            Text(text = "❌未满足启动条件")
         }
     }
+
+    // panel 显隐
+
+    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (!vm.isServiceAlive){
+            Text(text = "服务未启动，无法显示悬浮窗")
+        } else {
+            if (vm.isServiceRunning) {
+                Text(text = "服务工作中")
+                Spacer(modifier = Modifier.weight(1f))
+                Button(onClick = {
+                    vm.stopWork()
+                }) { // TODO
+                    Text(text = "结束")
+                }
+            } else {
+                Text(text = "服务闲置中")
+                Spacer(modifier = Modifier.weight(1f))
+                Button(onClick = {
+                    vm.startWork()
+                }) {
+                    Text(text = "启用")
+                }
+            }
+        }
+    }
+
+    // 自动启动服务开关
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -201,7 +223,9 @@ fun MainPage(vm: MainViewModel = viewModel()) {
 }
 
 @Composable
-fun App() {
+fun App(
+    toLaunchMainService: () -> Unit
+) {
     AutoScrollTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(
@@ -209,7 +233,9 @@ fun App() {
                     .padding(innerPadding)
                     .padding(32.dp)
             ) {
-                MainPage()
+                MainPage(
+                    toLaunchMainService = toLaunchMainService
+                )
             }
         }
     }
@@ -217,45 +243,43 @@ fun App() {
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var shellUtil: ShellUtilClient
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val vm : MainViewModel by viewModels()
+        val vm: MainViewModel by viewModels()
 
         vm.refresh(this)
 
-        if (vm.shizukuAccess && vm.autoLaunchService){
+        if (vm.shizukuAccess && vm.autoLaunchService) {
             lifecycleScope.launch {
-                // how to delay to wait for Shizuku to be ready, 10 seconds or fail
-                var wait = 0;
+                var wait = 0
                 while (wait < 10 && !vm.shellUtilClient.isBound) {
                     vm.shellUtilClient.bind()
                     wait++
-                    kotlinx.coroutines.delay(1000)
+                    delay(1000)
                 }
                 if (vm.shizukuAccess) {
-                    grantShizukuAppops(this@MainActivity, vm.shellUtilClient)
+                    grantShizuA11y(this@MainActivity, vm.shellUtilClient)
                     vm.refresh(this@MainActivity)
-                    if (vm.hasAccessibility && vm.canDrawOverlays) {
-                        startMainService(this@MainActivity)
-                    }
                 }
             }
-
         }
 
         enableEdgeToEdge()
 
         setContent {
-            App()
+            App(
+                toLaunchMainService = {
+                    requestPermission(this, Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                }
+            )
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        shellUtil.unbind()
+        val vm: MainViewModel by viewModels()
+        vm.shellUtilClient.unbind()
     }
 }
 

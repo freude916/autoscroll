@@ -1,42 +1,55 @@
-package com.dezier.autoscroll
+package com.dezier.autoscroll.main
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Application
 import android.content.Context
 import android.content.Context.ACCESSIBILITY_SERVICE
 import android.content.pm.PackageManager
-import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.dezier.autoscroll.prefs.AppPreferences
+import com.dezier.autoscroll.service.MainService
 import com.dezier.utils.ShellUtilClient
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import rikka.shizuku.Shizuku
 
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     data class ViewModelState(
         val hasAccessibility: Boolean = false,
-        val canDrawOverlays: Boolean = false,
         val shizukuFound: Boolean = false,
         val shizukuAccess: Boolean = false,
-        val autoLaunchService: Boolean = false
+        val autoLaunchService: Boolean = false,
+        val isServiceAlive: Boolean = false,
+        val isServiceRunning: Boolean = false,
     )
 
     var state by mutableStateOf(ViewModelState())
         private set
 
     val hasAccessibility get() = state.hasAccessibility
-    val canDrawOverlays get() = state.canDrawOverlays
     val shizukuFound get() = state.shizukuFound
     val shizukuAccess get() = state.shizukuAccess
+    val autoLaunchService get() = state.autoLaunchService
+    val isServiceAlive get() = state.isServiceAlive
 
-    val autoLaunchService
-        get() = state.autoLaunchService
+    val isServiceRunning get() = state.isServiceRunning
 
     val shellUtilClient = ShellUtilClient(application, application.packageName)
+
+    init {
+        MainService.isAlive
+            .onEach { running -> state = state.copy(isServiceAlive = running) }
+            .launchIn(viewModelScope)
+        MainService.isRunning
+            .onEach { running -> state = state.copy(isServiceRunning = running) }
+            .launchIn(viewModelScope)
+    }
 
     companion object {
         fun isShizukuFound(): Boolean {
@@ -77,7 +90,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         state = state.copy(
             hasAccessibility = isAccessibilityServiceEnabled(context),
-            canDrawOverlays = Settings.canDrawOverlays(context),
             shizukuFound = shizukuFound,
             shizukuAccess = shizukuAccess,
             autoLaunchService = AppPreferences.isLaunchOnStartupEnabled(context)
@@ -87,5 +99,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAutoLaunchService(context: Context, enabled: Boolean) {
         AppPreferences.setLaunchOnStartup(context, enabled)
         state = state.copy(autoLaunchService = enabled)
+    }
+
+    fun startWork() {
+        MainService.instance?.startWork()
+    }
+
+    fun stopWork() {
+        MainService.instance?.stopWork()
     }
 }
