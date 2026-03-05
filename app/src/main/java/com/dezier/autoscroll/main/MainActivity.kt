@@ -25,8 +25,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
-import androidx.lifecycle.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dezier.autoscroll.service.MainService
 import com.dezier.autoscroll.ui.theme.AutoScrollTheme
@@ -35,9 +37,6 @@ import com.dezier.utils.ShellUtilClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
-
-
-
 
 
 fun requestPermission(
@@ -58,13 +57,12 @@ fun PermissionRow(
     requestString: String, successString: String, isGranted: Boolean, onGrant: () -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .height(64.dp), verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(64.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = if (!isGranted) requestString else successString,
-             fontWeight = FontWeight.Medium)
+        Text(
+            text = if (!isGranted) requestString else successString, fontWeight = FontWeight.Medium
+        )
         if (!isGranted) {
             Spacer(modifier = Modifier.weight(1f))
             Button(onClick = onGrant) {
@@ -74,7 +72,7 @@ fun PermissionRow(
     }
 }
 
-suspend fun grantShizuA11y(context: Context, shellUtilClient: ShellUtilClient) {
+suspend fun grantShizuOps(context: Context, shellUtilClient: ShellUtilClient) {
     if (!shellUtilClient.isBound) {
         Toast.makeText(context, "Shizuku not connected.", Toast.LENGTH_SHORT).show()
         return
@@ -82,12 +80,27 @@ suspend fun grantShizuA11y(context: Context, shellUtilClient: ShellUtilClient) {
 
     val component = ComponentName(context.packageName, MainService::class.java.name)
 
-    val r = shellUtilClient.grantAccessibilityPermission(component.flattenToString())
-
-    if (r.isSuccess) {
-        Toast.makeText(context, "Shizuku A11y ✅", Toast.LENGTH_SHORT).show()
+    val r1 = if (!MainViewModel.isA11yEnabled(context)) {
+        shellUtilClient.grantAccessibilityPermission(component.flattenToString())
     } else {
-        Toast.makeText(context, "Shizuku A11y ❌", Toast.LENGTH_SHORT).show()
+        Result.success(Unit)
+    }
+
+//   val uid: Int = try {
+//       val ai = context.packageManager.getApplicationInfo(context.packageName, 0)
+//       ai.uid
+//   } catch (e: PackageManager.NameNotFoundException) {
+//       Toast.makeText(context, "Package not found: ${e.message}", Toast.LENGTH_SHORT).show()
+//       return
+//   }
+//   shellUtilClient.grantOverlayPermission(packageName = context.packageName, uid = uid)
+
+    // 使用 ACCESSIBILITY_OVERLAY 之后就不需要 Overlay 权限了
+
+    if (r1.isSuccess) {
+        Toast.makeText(context, "Shizuku AppOps ✅", Toast.LENGTH_SHORT).show()
+    } else {
+        Toast.makeText(context, "Shizuku Failed ❌", Toast.LENGTH_SHORT).show()
     }
 
 }
@@ -99,9 +112,7 @@ fun ShizukuSection(vm: MainViewModel = viewModel()) {
 
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(ShizukuSectionPurple, shape = RoundedCornerShape(8.dp))
+        modifier = Modifier.fillMaxWidth().background(ShizukuSectionPurple, shape = RoundedCornerShape(8.dp))
             .padding(16.dp)
     ) {
         Row(
@@ -111,30 +122,26 @@ fun ShizukuSection(vm: MainViewModel = viewModel()) {
             Text(text = "🟪👀 发现 Shizuku")
         }
         PermissionRow(
-            requestString = "请求 Shizuku",
-            successString = "Shizuku 已授权",
-            isGranted = vm.shizukuAccess,
-            onGrant = {
+            requestString = "请求 Shizuku", successString = "Shizuku 已授权", isGranted = vm.shizukuAccess, onGrant = {
                 Shizuku.requestPermission(1001)
-            }
-        )
+            })
         PermissionRow(
-            requestString = "通过 Shizuku 授予无障碍权限",
-            successString = "已获得无障碍权限，无需操作",
-            isGranted = vm.hasAccessibility,
+            requestString = "通过 Shizuku 授予权限",
+            successString = "已获得无障碍和悬浮窗权限，无需操作",
+            isGranted = vm.hasAccessibility && vm.hasOverlay,
             onGrant = {
                 lifecycleOwner.lifecycleScope.launch {
-                    grantShizuA11y(context, vm.shellUtilClient)
+                    grantShizuOps(context, vm.shellUtilClient)
                     vm.refresh(context)
                 }
-            }
-        )
+            })
     }
 }
 
 @Composable
-fun MainPage(toLaunchMainService: () -> Unit,
-             vm: MainViewModel = viewModel()) {
+fun MainPage(
+    toLaunchMainService: () -> Unit, vm: MainViewModel = viewModel()
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -153,7 +160,6 @@ fun MainPage(toLaunchMainService: () -> Unit,
         ShizukuSection()
     }
 
-
     PermissionRow(
         requestString = "无障碍权限",
         successString = "已获得无障碍权限",
@@ -161,10 +167,9 @@ fun MainPage(toLaunchMainService: () -> Unit,
         onGrant = { requestPermission(context, Settings.ACTION_ACCESSIBILITY_SETTINGS) })
 
     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (vm.isServiceAlive){
+        if (vm.isServiceAlive) {
             Text(text = "✅服务正在运行")
-        }
-        else if (vm.hasAccessibility) {
+        } else if (vm.isRunnable) {
             Text(text = "⌛启动服务")
             Spacer(modifier = Modifier.weight(1f))
             Button(
@@ -179,7 +184,7 @@ fun MainPage(toLaunchMainService: () -> Unit,
     // panel 显隐
 
     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (!vm.isServiceAlive){
+        if (!vm.isServiceAlive) {
             Text(text = "服务未启动，无法显示悬浮窗")
         } else {
             if (vm.isServiceRunning) {
@@ -187,7 +192,7 @@ fun MainPage(toLaunchMainService: () -> Unit,
                 Spacer(modifier = Modifier.weight(1f))
                 Button(onClick = {
                     vm.stopWork()
-                }) { // TODO
+                }) {
                     Text(text = "结束")
                 }
             } else {
@@ -205,20 +210,15 @@ fun MainPage(toLaunchMainService: () -> Unit,
     // 自动启动服务开关
 
     Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+        Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = "自动获取权限并启动服务 (experimental)")
+        Text(text = "使用 Shizuku 自动获取权限并启动服务 (experimental)")
 
         Spacer(modifier = Modifier.weight(1f))
         Switch(
-            checked = vm.autoLaunchService,
-            enabled = vm.shizukuAccess,
-            onCheckedChange = {
-            vm.setAutoLaunchService(context, it)
-        })
+            checked = vm.autoLaunchService, enabled = vm.shizukuAccess, onCheckedChange = {
+                vm.setAutoLaunchService(context, it)
+            })
     }
 }
 
@@ -229,9 +229,7 @@ fun App(
     AutoScrollTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(
-                modifier = Modifier
-                    .padding(innerPadding)
-                    .padding(32.dp)
+                modifier = Modifier.padding(innerPadding).padding(32.dp)
             ) {
                 MainPage(
                     toLaunchMainService = toLaunchMainService
@@ -253,13 +251,13 @@ class MainActivity : ComponentActivity() {
         if (vm.shizukuAccess && vm.autoLaunchService) {
             lifecycleScope.launch {
                 var wait = 0
-                while (wait < 10 && !vm.shellUtilClient.isBound) {
+                while (wait < 3 && !vm.shellUtilClient.isBound) {
                     vm.shellUtilClient.bind()
                     wait++
                     delay(1000)
                 }
                 if (vm.shizukuAccess) {
-                    grantShizuA11y(this@MainActivity, vm.shellUtilClient)
+                    grantShizuOps(this@MainActivity, vm.shellUtilClient)
                     vm.refresh(this@MainActivity)
                 }
             }
@@ -271,8 +269,7 @@ class MainActivity : ComponentActivity() {
             App(
                 toLaunchMainService = {
                     requestPermission(this, Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                }
-            )
+                })
         }
     }
 
@@ -282,6 +279,8 @@ class MainActivity : ComponentActivity() {
         vm.shellUtilClient.unbind()
     }
 }
+
+
 
 
 

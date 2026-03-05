@@ -20,8 +20,14 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true       // 开启 R8 代码压缩 & 混淆（tree-shaking 未使用的类/方法）
+            isShrinkResources = true     // 开启资源压缩（移除未引用的资源文件）
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-dev"
         }
     }
     compileOptions {
@@ -34,6 +40,23 @@ android {
     buildFeatures {
         compose = true
         aidl = true
+    }
+
+    // 排除 APK 中不必要的元数据文件
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/AL2.0",
+                "META-INF/LGPL2.1",
+                "META-INF/*.kotlin_module",
+                "META-INF/versions/**",
+                "kotlin/**",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json",
+            )
+        }
     }
 }
 
@@ -52,6 +75,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("androidx.lifecycle:lifecycle-service:2.9.4")
     implementation("androidx.activity:activity-compose:1.11.0")
+    implementation(libs.androidx.ui.geometry)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

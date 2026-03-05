@@ -1,7 +1,6 @@
 package com.dezier.autoscroll.prefs
 
 import android.content.Context
-import androidx.compose.ui.geometry.Offset
 import androidx.core.content.edit
 
 // 使用 object 创建一个单例来管理 SharedPreferences
@@ -25,6 +24,14 @@ object AppPreferences {
     const val KEY_MARKER_POS_Y = "marker_pos_y"
 
     const val DEFAULT_MARKER_POS_Y = 200
+
+    /** 连续滚屏间隔时间（毫秒），默认 1000 ms */
+    const val KEY_AUTO_SCROLL_INTERVAL = "auto_scroll_interval"
+    const val DEFAULT_AUTO_SCROLL_INTERVAL = 1000L
+
+    /** 连续滚屏方向：true = 向下（内容上移），false = 向上（内容下移） */
+    const val KEY_AUTO_SCROLL_DIRECTION_DOWN = "auto_scroll_direction_down"
+    const val DEFAULT_AUTO_SCROLL_DIRECTION_DOWN = true
 
     private fun getPrefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -62,5 +69,20 @@ object AppPreferences {
             putInt(KEY_MARKER_POS_X, pos.first)
             putInt(KEY_MARKER_POS_Y, pos.second)
         }
+    }
+
+    fun getAutoScrollInterval(context: Context): Long =
+        getPrefs(context).getLong(KEY_AUTO_SCROLL_INTERVAL, DEFAULT_AUTO_SCROLL_INTERVAL)
+
+    fun setAutoScrollInterval(context: Context, ms: Long) {
+        getPrefs(context).edit { putLong(KEY_AUTO_SCROLL_INTERVAL, ms) }
+    }
+
+    /** 连续滚屏方向：true = 向下滚，false = 向上滚 */
+    fun isAutoScrollDirectionDown(context: Context): Boolean =
+        getPrefs(context).getBoolean(KEY_AUTO_SCROLL_DIRECTION_DOWN, DEFAULT_AUTO_SCROLL_DIRECTION_DOWN)
+
+    fun setAutoScrollDirectionDown(context: Context, down: Boolean) {
+        getPrefs(context).edit { putBoolean(KEY_AUTO_SCROLL_DIRECTION_DOWN, down) }
     }
 }

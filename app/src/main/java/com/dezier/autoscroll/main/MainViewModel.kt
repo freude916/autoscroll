@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Context.ACCESSIBILITY_SERVICE
 import android.content.pm.PackageManager
+import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +23,7 @@ import rikka.shizuku.Shizuku
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     data class ViewModelState(
         val hasAccessibility: Boolean = false,
+        val hasOverlay: Boolean = false,
         val shizukuFound: Boolean = false,
         val shizukuAccess: Boolean = false,
         val autoLaunchService: Boolean = false,
@@ -33,6 +35,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     val hasAccessibility get() = state.hasAccessibility
+    val hasOverlay get() = state.hasOverlay
+
+    val isRunnable get() = hasAccessibility // 使用 ACCESSIBILITY_OVERLAY 之后就不需要 Overlay 权限了
     val shizukuFound get() = state.shizukuFound
     val shizukuAccess get() = state.shizukuAccess
     val autoLaunchService get() = state.autoLaunchService
@@ -55,7 +60,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         fun isShizukuFound(): Boolean {
             return try {
                 Shizuku.pingBinder()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 false
             }
         }
@@ -69,13 +74,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 false
             }
         }
+
+        fun isA11yEnabled(context: Context): Boolean {
+            val a11m = context.getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
+            val enabledServices = a11m.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            return enabledServices.any { it.resolveInfo.serviceInfo.packageName == context.packageName }
+        }
+
+        fun isOverlayEnabled(context: Context): Boolean {
+            return Settings.canDrawOverlays(context)
+        }
     }
 
-    fun isAccessibilityServiceEnabled(context: Context): Boolean {
-        val a11m = context.getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
-        val enabledServices = a11m.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-        return enabledServices.any { it.resolveInfo.serviceInfo.packageName == context.packageName }
-    }
+
 
     fun refresh(context: Context) {
 
@@ -89,7 +100,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         state = state.copy(
-            hasAccessibility = isAccessibilityServiceEnabled(context),
+            hasAccessibility = isA11yEnabled(context),
+            hasOverlay = Settings.canDrawOverlays(context),
             shizukuFound = shizukuFound,
             shizukuAccess = shizukuAccess,
             autoLaunchService = AppPreferences.isLaunchOnStartupEnabled(context)

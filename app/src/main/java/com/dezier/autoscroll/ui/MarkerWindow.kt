@@ -1,4 +1,4 @@
-package com.dezier.autoscroll.service
+package com.dezier.autoscroll.ui
 
 import android.graphics.PixelFormat
 import android.view.Gravity
@@ -11,9 +11,10 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.dezier.autoscroll.prefs.AppPreferences
+import com.dezier.autoscroll.service.MainService
 
 /**
- * 管理标记点的状态（可见性）以及它对应的 overlay Window。
+ * 管理标记点 overlay Window。
  *
  * 职责边界：
  *  - 状态：isVisible（Compose State，驱动 UI 重组）
@@ -27,28 +28,24 @@ class MarkerWindow(
     parent: MainService,
 ) {
 
-    // MarkerOverlay 圆形直径 48dp，半径 24dp → px，用于换算圆心坐标
-    private val markerRadiusPx: Float = 24f * parent.resources.displayMetrics.density
-
     // ── State ────────────────────────────────────────────────────────────────
 
-    /** 是否可见；可见时 overlay 拦截触摸，隐藏时透传 */
+    /** 可见性： 不可见时添加 FLAG_NOT_TOUCHABLE 从而透传触摸 */
     var isVisible: Boolean by mutableStateOf(false)
         private set
 
     // ── Window ───────────────────────────────────────────────────────────────
 
-    val initialPosition: Pair<Int, Int> = AppPreferences.getMarkerPosition(parent)
-
     private val layout = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, // 用这个就可以不申请悬浮窗权限了
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
             or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
         PixelFormat.TRANSLUCENT
     ).apply {
+        val initialPosition: Pair<Int, Int> = AppPreferences.getMarkerPosition(parent)
         x = initialPosition.first
         y = initialPosition.second
         gravity = Gravity.START or Gravity.TOP
@@ -60,9 +57,9 @@ class MarkerWindow(
         setContent {
             MarkerOverlay(
                 isVisible = isVisible,
-                onDrag = { dragAmount ->
-                    layout.x += dragAmount.x.toInt()
-                    layout.y += dragAmount.y.toInt()
+                onDrag = { x, y ->
+                    layout.x = x.toInt()
+                    layout.y = y.toInt()
                     windowManager.updateViewLayout(this, layout)
                     AppPreferences.setMarkerPosition(parent, Pair(layout.x, layout.y))
                 }
